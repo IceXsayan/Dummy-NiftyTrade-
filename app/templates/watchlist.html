@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}Watchlist - {{ broker_name }}{% endblock %}
+
+{% block content %}
+<!-- Watchlist Tabs & Management Bar -->
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px;">
+  <!-- Tabs -->
+  <div style="display: flex; align-items: center; gap: 8px; overflow-x: auto;">
+    {% for wl in watchlists %}
+    <a href="/watchlist?active_wl_id={{ wl.id }}" class="btn {{ 'btn-primary' if wl.id == current_wl.id else 'btn-outline' }}">
+      {{ wl.name }}
+    </a>
+    {% endfor %}
+  </div>
+
+  <!-- Create New Watchlist Form -->
+  <form action="/watchlist/create" method="POST" style="display: flex; gap: 8px;">
+    <input type="text" name="name" class="form-control" placeholder="New Watchlist Name" style="width: 180px;" required>
+    <button type="submit" class="btn btn-outline">+ Create</button>
+  </form>
+</div>
+
+<!-- Add Stock to Current Watchlist Form -->
+<div class="card" style="margin-bottom: 20px; padding: 14px 20px;">
+  <form action="/watchlist/add" method="POST" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+    <input type="hidden" name="watchlist_id" value="{{ current_wl.id }}">
+    <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Add Symbol to {{ current_wl.name }}:</span>
+    <select name="instrument_id" class="form-select" style="max-width: 320px;" required>
+      <option value="">-- Choose Stock / Bond / REIT --</option>
+      {% for inst in all_instruments %}
+      <option value="{{ inst.id }}">{{ inst.symbol }} - {{ inst.name[:25] }} ({{ inst.asset_class|upper }})</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-primary btn-sm">+ Add to List</button>
+  </form>
+</div>
+
+<!-- Watchlist Table -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">{{ current_wl.name }} ({{ instruments|length }} items)</h3>
+    <span style="font-size: 0.8rem; color: var(--text-secondary);">Prices update live via SSE</span>
+  </div>
+
+  {% if instruments %}
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Sector & Class</th>
+          <th>LTP (₹)</th>
+          <th>Day Change</th>
+          <th>Day High / Low</th>
+          <th>Volume</th>
+          <th>Trade</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inst in instruments %}
+        <tr>
+          <td>
+            <a href="/stock/{{ inst.symbol }}" style="font-weight: 700; color: var(--brand-primary); font-size: 0.95rem;">
+              {{ inst.symbol }}
+            </a>
+            <div style="font-size: 0.72rem; color: var(--text-secondary);">{{ inst.name[:28] }}</div>
+          </td>
+          <td>
+            <div style="font-size: 0.82rem;">{{ inst.sector }}</div>
+            <span class="badge badge-{{ inst.asset_class }}">{{ inst.asset_class }}</span>
+          </td>
+          <td style="font-weight: 700; font-size: 0.95rem;">
+            <span data-symbol-price="{{ inst.symbol }}">₹{{ "{:,.2f}".format(inst.current_price) }}</span>
+          </td>
+          <td>
+            {% set is_up = inst.day_change >= 0 %}
+            <div class="{{ 'text-up' if is_up else 'text-down' }}" style="font-weight: 600;">
+              <span data-symbol-chg="{{ inst.symbol }}">{{ "+" if is_up else "" }}₹{{ "%.2f"|format(inst.day_change) }}</span>
+            </div>
+            <div class="{{ 'text-up' if is_up else 'text-down' }}" style="font-size: 0.75rem;">
+              <span data-symbol-chg-pct="{{ inst.symbol }}">{{ "+" if is_up else "" }}{{ "%.2f"|format(inst.day_change_percentage) }}%</span>
+            </div>
+          </td>
+          <td style="font-size: 0.8rem; color: var(--text-secondary);">
+            H: <span data-symbol-high="{{ inst.symbol }}" style="color: var(--text-primary);">₹{{ "{:,.2f}".format(inst.high_price) }}</span><br>
+            L: <span data-symbol-low="{{ inst.symbol }}" style="color: var(--text-primary);">₹{{ "{:,.2f}".format(inst.low_price) }}</span>
+          </td>
+          <td style="font-size: 0.82rem;">
+            <span data-symbol-vol="{{ inst.symbol }}">{{ "{:,}".format(inst.volume) }}</span>
+          </td>
+          <td>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-buy btn-sm" onclick="openOrderModal('{{ inst.symbol }}', 'BUY')">B</button>
+              <button class="btn btn-sell btn-sm" onclick="openOrderModal('{{ inst.symbol }}', 'SELL')">S</button>
+            </div>
+          </td>
+          <td>
+            <form action="/watchlist/remove" method="POST" style="margin: 0;">
+              <input type="hidden" name="watchlist_id" value="{{ current_wl.id }}">
+              <input type="hidden" name="instrument_id" value="{{ inst.id }}">
+              <button type="submit" class="btn btn-outline btn-sm" title="Remove from Watchlist" style="color: var(--red); border-color: transparent;">✕</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align: center; padding: 48px; color: var(--text-secondary);">
+    <p style="margin-bottom: 12px;">This watchlist is empty.</p>
+    <p style="font-size: 0.85rem;">Use the dropdown above or browse the <a href="/market">Market</a> to add stocks.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

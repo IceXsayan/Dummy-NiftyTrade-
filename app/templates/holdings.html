@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block title %}Holdings - {{ broker_name }}{% endblock %}
+
+{% block content %}
+<!-- Holdings Summary Bar -->
+<div class="stat-grid" style="margin-bottom: 20px;">
+  <div class="stat-card">
+    <span class="stat-label">Total Current Value</span>
+    <span class="stat-value">₹{{ "{:,.2f}".format(portfolio.total_current) }}</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Total Invested</span>
+    <span class="stat-value">₹{{ "{:,.2f}".format(portfolio.total_invested) }}</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Total Overall P&L</span>
+    <span class="stat-value {{ 'text-up' if portfolio.total_pnl >= 0 else 'text-down' }}">
+      {{ "+" if portfolio.total_pnl >= 0 else "" }}₹{{ "{:,.2f}".format(portfolio.total_pnl) }}
+    </span>
+    <span class="stat-sub {{ 'text-up' if portfolio.total_pnl_percentage >= 0 else 'text-down' }}">
+      {{ "+" if portfolio.total_pnl_percentage >= 0 else "" }}{{ "%.2f"|format(portfolio.total_pnl_percentage) }}%
+    </span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Day's P&L</span>
+    <span class="stat-value {{ 'text-up' if portfolio.day_pnl >= 0 else 'text-down' }}">
+      {{ "+" if portfolio.day_pnl >= 0 else "" }}₹{{ "{:,.2f}".format(portfolio.day_pnl) }}
+    </span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Delivery Holdings ({{ portfolio.holdings|length }} assets)</h3>
+    <a href="/analytics" class="btn btn-outline btn-sm">View Allocation Breakdown</a>
+  </div>
+
+  {% if portfolio.holdings %}
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Instrument</th>
+          <th>Qty</th>
+          <th>Avg. Price</th>
+          <th>LTP</th>
+          <th>Invested</th>
+          <th>Current Value</th>
+          <th>Day Change</th>
+          <th>Overall P&L</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in portfolio.holdings %}
+        <tr>
+          <td>
+            <a href="/stock/{{ h.symbol }}" style="font-weight: 700; color: var(--text-primary); font-size: 0.95rem;">
+              {{ h.symbol }}
+            </a>
+            <span class="badge badge-{{ h.asset_class }}" style="margin-left: 6px;">{{ h.asset_class }}</span>
+            <div style="font-size: 0.72rem; color: var(--text-secondary);">{{ h.name[:25] }} &bull; {{ h.sector }}</div>
+          </td>
+          <td style="font-weight: 600;">{{ h.quantity }}</td>
+          <td>₹{{ "{:,.2f}".format(h.average_price) }}</td>
+          <td style="font-weight: 600;">
+            <span data-symbol-price="{{ h.symbol }}">₹{{ "{:,.2f}".format(h.current_price) }}</span>
+          </td>
+          <td>₹{{ "{:,.2f}".format(h.invested_value) }}</td>
+          <td style="font-weight: 700;">₹{{ "{:,.2f}".format(h.current_value) }}</td>
+          <td>
+            {% set is_day_up = h.day_change >= 0 %}
+            <div class="{{ 'text-up' if is_day_up else 'text-down' }}" style="font-weight: 600;">
+              {{ "+" if is_day_up else "" }}₹{{ "{:,.2f}".format(h.day_change) }}
+            </div>
+            <div class="{{ 'text-up' if is_day_up else 'text-down' }}" style="font-size: 0.75rem;">
+              <span data-symbol-chg-pct="{{ h.symbol }}">{{ "+" if is_day_up else "" }}{{ "%.2f"|format(h.day_change_pct) }}%</span>
+            </div>
+          </td>
+          <td>
+            <div class="{{ 'text-up' if h.pnl >= 0 else 'text-down' }}" style="font-weight: 700;">
+              {{ "+" if h.pnl >= 0 else "" }}₹{{ "{:,.2f}".format(h.pnl) }}
+            </div>
+            <div class="{{ 'text-up' if h.pnl_percentage >= 0 else 'text-down' }}" style="font-size: 0.75rem;">
+              {{ "+" if h.pnl_percentage >= 0 else "" }}{{ "%.2f"|format(h.pnl_percentage) }}%
+            </div>
+          </td>
+          <td>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-buy btn-sm" onclick="openOrderModal('{{ h.symbol }}', 'BUY')">Add</button>
+              <button class="btn btn-sell btn-sm" onclick="openOrderModal('{{ h.symbol }}', 'SELL')">Exit</button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td>Total ({{ portfolio.holdings|length }} Holdings)</td>
+          <td>-</td>
+          <td>-</td>
+          <td>-</td>
+          <td>₹{{ "{:,.2f}".format(portfolio.total_invested) }}</td>
+          <td>₹{{ "{:,.2f}".format(portfolio.total_current) }}</td>
+          <td class="{{ 'text-up' if portfolio.day_pnl >= 0 else 'text-down' }}">
+            {{ "+" if portfolio.day_pnl >= 0 else "" }}₹{{ "{:,.2f}".format(portfolio.day_pnl) }}
+          </td>
+          <td class="{{ 'text-up' if portfolio.total_pnl >= 0 else 'text-down' }}">
+            {{ "+" if portfolio.total_pnl >= 0 else "" }}₹{{ "{:,.2f}".format(portfolio.total_pnl) }}
+            ({{ "+" if portfolio.total_pnl_percentage >= 0 else "" }}{{ "%.2f"|format(portfolio.total_pnl_percentage) }}%)
+          </td>
+          <td>-</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align: center; padding: 48px; color: var(--text-secondary);">
+    <p style="margin-bottom: 12px;">You do not hold any delivery stocks yet.</p>
+    <a href="/market" class="btn btn-primary btn-sm">Explore Stocks to Buy</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

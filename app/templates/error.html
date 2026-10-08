@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Error - {{ broker_name }}{% endblock %}
+
+{% block content %}
+<div style="max-width: 500px; margin: 60px auto; text-align: center;">
+  <div class="card" style="padding: 40px;">
+    <div style="display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 50%; background: var(--red-bg); color: var(--red); font-size: 1.8rem; margin-bottom: 16px;">
+      ⚠️
+    </div>
+    <h2 style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">{{ title or "Something went wrong" }}</h2>
+    <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 24px;">{{ error_message or "An unexpected error occurred while processing your request." }}</p>
+    <a href="/dashboard" class="btn btn-primary">Return to Dashboard</a>
+  </div>
+</div>
+{% endblock %}

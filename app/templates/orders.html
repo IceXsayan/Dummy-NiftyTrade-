@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Order Book - {{ broker_name }}{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <div>
+      <h3 class="card-title">Order Book</h3>
+      <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
+        Track market orders and open limit orders. Limit orders execute when price crosses limit.
+      </div>
+    </div>
+    <a href="/market" class="btn btn-primary btn-sm">+ Place New Order</a>
+  </div>
+
+  {% if orders %}
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Order ID</th>
+          <th>Instrument</th>
+          <th>Type</th>
+          <th>Side</th>
+          <th>Product</th>
+          <th>Qty</th>
+          <th>Placed Price</th>
+          <th>Avg. Executed</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in orders %}
+        <tr>
+          <td style="font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap;">
+            {{ o.created_at.strftime('%d %b %H:%M:%S') if o.created_at else '' }}
+          </td>
+          <td style="font-family: monospace; font-size: 0.78rem;">{{ o.order_id }}</td>
+          <td>
+            <a href="/stock/{{ o.instrument.symbol }}" style="font-weight: 700; color: var(--text-primary);">
+              {{ o.instrument.symbol }}
+            </a>
+          </td>
+          <td><span style="font-size: 0.8rem; font-weight: 600;">{{ o.order_type }}</span></td>
+          <td>
+            <span class="badge {{ 'badge-equity' if o.transaction_type == 'BUY' else 'bg-down' }}">
+              {{ o.transaction_type }}
+            </span>
+          </td>
+          <td><span style="font-size: 0.8rem;">{{ o.product_type }}</span></td>
+          <td style="font-weight: 600;">{{ o.quantity }}</td>
+          <td>₹{{ "{:,.2f}".format(o.price) }}</td>
+          <td>
+            {% if o.average_executed_price %}
+            ₹{{ "{:,.2f}".format(o.average_executed_price) }}
+            {% else %}
+            <span style="color: var(--text-muted);">-</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if o.status == 'EXECUTED' %}
+            <span class="badge bg-up" style="border: 1px solid var(--green-border);">EXECUTED</span>
+            {% elif o.status == 'OPEN' %}
+            <span class="badge" style="background: rgba(59, 130, 246, 0.15); color: var(--brand-primary); border: 1px solid rgba(59, 130, 246, 0.3);">OPEN</span>
+            {% elif o.status == 'CANCELLED' %}
+            <span class="badge" style="background: var(--bg-hover); color: var(--text-muted);">CANCELLED</span>
+            {% else %}
+            <span class="badge bg-down" style="border: 1px solid var(--red-border);" title="{{ o.rejection_reason or 'Order Rejected' }}">REJECTED</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if o.status == 'OPEN' %}
+            <form action="/orders/cancel" method="POST" style="margin: 0;" onsubmit="this.action='/orders/cancel/{{ o.order_id }}'">
+              <button type="submit" class="btn btn-outline btn-sm" style="color: var(--red); border-color: var(--red-border);">Cancel</button>
+            </form>
+            {% else %}
+            <span style="color: var(--text-muted); font-size: 0.8rem;">-</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align: center; padding: 48px; color: var(--text-secondary);">
+    <p style="margin-bottom: 12px;">No orders found in your order book.</p>
+    <a href="/market" class="btn btn-primary btn-sm">Browse Market & Trade</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

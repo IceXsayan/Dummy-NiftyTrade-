@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}Portfolio Analytics - {{ broker_name }}{% endblock %}
+
+{% block content %}
+<!-- Top Metrics Bar -->
+<div class="stat-grid" style="margin-bottom: 24px;">
+  <div class="stat-card">
+    <span class="stat-label">Net Investment</span>
+    <span class="stat-value">₹{{ "{:,.2f}".format(portfolio.total_invested) }}</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Current Portfolio Valuation</span>
+    <span class="stat-value">₹{{ "{:,.2f}".format(portfolio.total_current) }}</span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Overall Profit / Loss</span>
+    <span class="stat-value {{ 'text-up' if portfolio.total_pnl >= 0 else 'text-down' }}">
+      {{ "+" if portfolio.total_pnl >= 0 else "" }}₹{{ "{:,.2f}".format(portfolio.total_pnl) }}
+    </span>
+    <span class="stat-sub {{ 'text-up' if portfolio.total_pnl_percentage >= 0 else 'text-down' }}">
+      {{ "+" if portfolio.total_pnl_percentage >= 0 else "" }}{{ "%.2f"|format(portfolio.total_pnl_percentage) }}%
+    </span>
+  </div>
+  <div class="stat-card">
+    <span class="stat-label">Assets Count</span>
+    <span class="stat-value">{{ portfolio.holdings|length }}</span>
+    <span class="stat-sub" style="color: var(--text-secondary);">Distinct holdings</span>
+  </div>
+</div>
+
+<!-- Pie Charts Row: Asset Class & Sector Allocation -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; margin-bottom: 24px;">
+  
+  <!-- Asset Class Allocation Pie Chart -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">Asset Class Allocation</h3>
+      <span style="font-size: 0.8rem; color: var(--text-secondary);">Equity, REITs, InvITs, Bonds</span>
+    </div>
+    <div style="position: relative; height: 280px; width: 100%;">
+      <canvas id="assetChart"></canvas>
+    </div>
+    <!-- Legend list -->
+    <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
+      {% for a in portfolio.asset_allocation %}
+      <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+        <span style="font-weight: 500;">{{ a.label }}</span>
+        <span>₹{{ "{:,.2f}".format(a.value) }} <strong>({{ a.percentage }}%)</strong></span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Sector Allocation Doughnut Chart -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">Sector Allocation</h3>
+      <span style="font-size: 0.8rem; color: var(--text-secondary);">Industry Diversification</span>
+    </div>
+    <div style="position: relative; height: 280px; width: 100%;">
+      <canvas id="sectorChart"></canvas>
+    </div>
+    <!-- Top 5 Sectors List -->
+    <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
+      {% for s in portfolio.sector_allocation[:5] %}
+      <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+        <span style="font-weight: 500;">{{ s.label }}</span>
+        <span>₹{{ "{:,.2f}".format(s.value) }} <strong>({{ s.percentage }}%)</strong></span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+
+<!-- Top Holdings Contribution -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Top 5 Holdings by Valuation</h3>
+  </div>
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Asset Class</th>
+          <th>Sector</th>
+          <th>Qty</th>
+          <th>Current Value</th>
+          <th>Portfolio Weight</th>
+          <th>P&L</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in portfolio.top_holdings %}
+        <tr>
+          <td>
+            <a href="/stock/{{ h.symbol }}" style="font-weight: 700; color: var(--text-primary);">
+              {{ h.symbol }}
+            </a>
+            <div style="font-size: 0.72rem; color: var(--text-secondary);">{{ h.name[:25] }}</div>
+          </td>
+          <td><span class="badge badge-{{ h.asset_class }}">{{ h.asset_class }}</span></td>
+          <td>{{ h.sector }}</td>
+          <td style="font-weight: 600;">{{ h.quantity }}</td>
+          <td style="font-weight: 700;">₹{{ "{:,.2f}".format(h.current_value) }}</td>
+          <td style="font-weight: 600;">
+            {% set weight = (h.current_value / portfolio.total_current * 100) if portfolio.total_current > 0 else 0 %}
+            {{ "%.1f"|format(weight) }}%
+          </td>
+          <td class="{{ 'text-up' if h.pnl >= 0 else 'text-down' }}" style="font-weight: 700;">
+            {{ "+" if h.pnl >= 0 else "" }}₹{{ "{:,.2f}".format(h.pnl) }} ({{ "+" if h.pnl_percentage >= 0 else "" }}{{ "%.2f"|format(h.pnl_percentage) }}%)
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="application/json" id="analytics-data">
+{
+  "assetLabels": {{ portfolio.asset_allocation|map(attribute='label')|list|tojson }},
+  "assetValues": {{ portfolio.asset_allocation|map(attribute='value')|list|tojson }},
+  "sectorLabels": {{ portfolio.sector_allocation|map(attribute='label')|list|tojson }},
+  "sectorValues": {{ portfolio.sector_allocation|map(attribute='value')|list|tojson }}
+}
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const analyticsData = JSON.parse(document.getElementById('analytics-data').textContent);
+  const assetLabels = analyticsData.assetLabels || [];
+  const assetValues = analyticsData.assetValues || [];
+  const sectorLabels = analyticsData.sectorLabels || [];
+  const sectorValues = analyticsData.sectorValues || [];
+
+  // 1. Asset Class Allocation Chart
+  const assetCanvas = document.getElementById('assetChart');
+  if (assetCanvas) {
+    const assetCtx = assetCanvas.getContext('2d');
+    new Chart(assetCtx, {
+      type: 'pie',
+      data: {
+        labels: assetLabels,
+        datasets: [{
+          data: assetValues,
+          backgroundColor: [
+            '#2563eb', // Equity blue
+            '#9333ea', // REIT purple
+            '#0d9488', // InvIT teal
+            '#d97706'  // Bond amber
+          ],
+          borderWidth: 1,
+          borderColor: 'rgba(0,0,0,0.1)'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: { color: document.documentElement.getAttribute('data-theme') === 'dark' ? '#cbd5e1' : '#475569' }
+          }
+        }
+      }
+    });
+  }
+
+  // 2. Sector Allocation Chart
+  const sectorCanvas = document.getElementById('sectorChart');
+  if (sectorCanvas) {
+    const sectorCtx = sectorCanvas.getContext('2d');
+    new Chart(sectorCtx, {
+      type: 'doughnut',
+      data: {
+        labels: sectorLabels,
+        datasets: [{
+          data: sectorValues,
+          backgroundColor: [
+            '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+            '#ec4899', '#06b6d4', '#84cc16', '#64748b', '#6366f1'
+          ],
+          borderWidth: 1,
+          borderColor: 'rgba(0,0,0,0.1)'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: { color: document.documentElement.getAttribute('data-theme') === 'dark' ? '#cbd5e1' : '#475569' }
+          }
+        }
+      }
+    });
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - {{ broker_name }}{% endblock %}
+
+{% block content %}
+<!-- Top Metrics Row -->
+<div class="stat-grid">
+  <div class="stat-card">
+    <span class="stat-label">Net Worth</span>
+    <span class="stat-value">₹{{ "{:,.2f}".format(portfolio.net_worth) }}</span>
+    <span class="stat-sub" style="color: var(--text-secondary);">
+      Holdings: ₹{{ "{:,.2f}".format(portfolio.total_current) }} + Cash: ₹{{ "{:,.2f}".format(portfolio.available_funds) }}
+    </span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-label">Total P&L</span>
+    <span class="stat-value {{ 'text-up' if portfolio.total_pnl >= 0 else 'text-down' }}">
+      {{ "+" if portfolio.total_pnl >= 0 else "" }}₹{{ "{:,.2f}".format(portfolio.total_pnl) }}
+    </span>
+    <span class="stat-sub {{ 'text-up' if portfolio.total_pnl_percentage >= 0 else 'text-down' }}">
+      {{ "+" if portfolio.total_pnl_percentage >= 0 else "" }}{{ "%.2f"|format(portfolio.total_pnl_percentage) }}% overall returns
+    </span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-label">Day P&L</span>
+    <span class="stat-value {{ 'text-up' if portfolio.day_pnl >= 0 else 'text-down' }}">
+      {{ "+" if portfolio.day_pnl >= 0 else "" }}₹{{ "{:,.2f}".format(portfolio.day_pnl) }}
+    </span>
+    <span class="stat-sub" style="color: var(--text-secondary);">
+      Holdings & Intraday M2M today
+    </span>
+  </div>
+
+  <div class="stat-card">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; width: 100%;">
+      <div>
+        <span class="stat-label">Available Cash Funds</span>
+        <span class="stat-value">₹{{ "{:,.2f}".format(portfolio.available_funds) }}</span>
+      </div>
+      <button type="button" onclick="openGlobalDepositModal()" class="btn btn-primary btn-sm" title="Add Cash" style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; font-weight: 600; cursor: pointer;">
+        <span style="font-size: 1.1rem; line-height: 1; font-weight: 700;">+</span> Add Money
+      </button>
+    </div>
+    <span class="stat-sub" style="color: var(--text-secondary);">
+      Used Margin: ₹{{ "{:,.2f}".format(portfolio.used_margin) }} | <a href="/funds" style="font-weight: 600;">Manage Funds & Ledger</a>
+    </span>
+  </div>
+</div>
+
+<!-- Two Column Layout: Top Gainers & Losers -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px; margin-bottom: 24px;">
+  
+  <!-- Top Gainers -->
+  <div class="card">
+    <div class="card-header">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--green-bg); color: var(--green); font-size: 0.8rem; font-weight: 700;">▲</span>
+        <h3 class="card-title">Top Gainers</h3>
+      </div>
+      <a href="/market?sort=change&order=desc" class="btn btn-outline btn-sm">View All</a>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>LTP</th>
+            <th>Day Change</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for stock in top_gainers %}
+          <tr>
+            <td>
+              <a href="/stock/{{ stock.symbol }}" style="font-weight: 600; color: var(--text-primary);">{{ stock.symbol }}</a>
+              <div style="font-size: 0.72rem; color: var(--text-secondary);">{{ stock.name[:24] }}</div>
+            </td>
+            <td>
+              <span data-symbol-price="{{ stock.symbol }}">₹{{ "{:,.2f}".format(stock.current_price) }}</span>
+            </td>
+            <td>
+              <span class="text-up" data-symbol-chg-pct="{{ stock.symbol }}">+{{ "%.2f"|format(stock.day_change_percentage) }}%</span>
+            </td>
+            <td>
+              <button class="btn btn-buy btn-sm" onclick="openOrderModal('{{ stock.symbol }}', 'BUY')">B</button>
+              <button class="btn btn-sell btn-sm" onclick="openOrderModal('{{ stock.symbol }}', 'SELL')">S</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Top Losers -->
+  <div class="card">
+    <div class="card-header">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--red-bg); color: var(--red); font-size: 0.8rem; font-weight: 700;">▼</span>
+        <h3 class="card-title">Top Losers</h3>
+      </div>
+      <a href="/market?sort=change&order=asc" class="btn btn-outline btn-sm">View All</a>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>LTP</th>
+            <th>Day Change</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for stock in top_losers %}
+          <tr>
+            <td>
+              <a href="/stock/{{ stock.symbol }}" style="font-weight: 600; color: var(--text-primary);">{{ stock.symbol }}</a>
+              <div style="font-size: 0.72rem; color: var(--text-secondary);">{{ stock.name[:24] }}</div>
+            </td>
+            <td>
+              <span data-symbol-price="{{ stock.symbol }}">₹{{ "{:,.2f}".format(stock.current_price) }}</span>
+            </td>
+            <td>
+              <span class="text-down" data-symbol-chg-pct="{{ stock.symbol }}">{{ "%.2f"|format(stock.day_change_percentage) }}%</span>
+            </td>
+            <td>
+              <button class="btn btn-buy btn-sm" onclick="openOrderModal('{{ stock.symbol }}', 'BUY')">B</button>
+              <button class="btn btn-sell btn-sm" onclick="openOrderModal('{{ stock.symbol }}', 'SELL')">S</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Top Holdings Overview -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Your Top Holdings</h3>
+    <a href="/holdings" class="btn btn-outline btn-sm">Full Holdings ({{ portfolio.holdings|length }})</a>
+  </div>
+
+  {% if portfolio.top_holdings %}
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Instrument</th>
+          <th>Qty</th>
+          <th>Avg. Price</th>
+          <th>LTP</th>
+          <th>Cur. Value</th>
+          <th>P&L</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in portfolio.top_holdings %}
+        <tr>
+          <td>
+            <a href="/stock/{{ h.symbol }}" style="font-weight: 600; color: var(--text-primary);">{{ h.symbol }}</a>
+            <span class="badge badge-{{ h.asset_class }}" style="margin-left: 6px;">{{ h.asset_class }}</span>
+            <div style="font-size: 0.72rem; color: var(--text-secondary);">{{ h.name[:25] }}</div>
+          </td>
+          <td>{{ h.quantity }}</td>
+          <td>₹{{ "{:,.2f}".format(h.average_price) }}</td>
+          <td><span data-symbol-price="{{ h.symbol }}">₹{{ "{:,.2f}".format(h.current_price) }}</span></td>
+          <td style="font-weight: 600;">₹{{ "{:,.2f}".format(h.current_value) }}</td>
+          <td>
+            <div class="{{ 'text-up' if h.pnl >= 0 else 'text-down' }}" style="font-weight: 600;">
+              {{ "+" if h.pnl >= 0 else "" }}₹{{ "{:,.2f}".format(h.pnl) }}
+            </div>
+            <div class="{{ 'text-up' if h.pnl_percentage >= 0 else 'text-down' }}" style="font-size: 0.75rem;">
+              {{ "+" if h.pnl_percentage >= 0 else "" }}{{ "%.2f"|format(h.pnl_percentage) }}%
+            </div>
+          </td>
+          <td>
+            <button class="btn btn-buy btn-sm" onclick="openOrderModal('{{ h.symbol }}', 'BUY')">B</button>
+            <button class="btn btn-sell btn-sm" onclick="openOrderModal('{{ h.symbol }}', 'SELL')">S</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align: center; padding: 32px; color: var(--text-secondary);">
+    <p>You have no delivery holdings yet.</p>
+    <a href="/market" class="btn btn-primary btn-sm" style="margin-top: 10px;">Explore Market</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

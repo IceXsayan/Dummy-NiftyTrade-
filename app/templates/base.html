@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ broker_name }} - Indian Discount Broker (Simulated){% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- Top Market Indices Ticker -->
+  <div class="top-ticker">
+    <div class="ticker-indices">
+      {% if indices %}
+      {% for idx_name, idx_info in indices.items() %}
+      <div class="index-item">
+        <span class="index-name">{{ idx_name }}</span>
+        <span class="index-val" data-index-val="{{ idx_name }}">{{ "{:,.2f}".format(idx_info.current) }}</span>
+        {% set is_up = (idx_info.current >= idx_info.prev_close) %}
+        {% set chg = idx_info.current - idx_info.prev_close %}
+        {% set chg_pct = (chg / idx_info.prev_close * 100) if idx_info.prev_close else 0.0 %}
+        <span class="index-change {{ 'text-up bg-up' if is_up else 'text-down bg-down' }}" data-index-chg="{{ idx_name }}">
+          {{ "+" if is_up else "" }}{{ "%.2f"|format(chg) }} ({{ "+" if is_up else "" }}{{ "%.2f"|format(chg_pct) }}%)
+        </span>
+      </div>
+      {% endfor %}
+      {% endif %}
+    </div>
+
+    <div class="market-status-pill {{ 'status-open' if market_open else 'status-closed' }}">
+      <span class="status-dot"></span>
+      <span>{{ "Market Open" if market_open else "Market Closed" }}</span>
+    </div>
+  </div>
+
+  <!-- Primary Header & Navigation -->
+  <header class="header">
+    <div class="nav-container">
+      <div class="brand-section">
+        <a href="/dashboard" class="brand-logo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--brand-primary);"><path d="m3 3 7 7 4-4 7 7"/><path d="M14 7h7v7"/></svg>
+          <span>{{ broker_name }}</span>
+        </a>
+        <span class="brand-badge">SIMULATED</span>
+      </div>
+
+      {% if user %}
+      <nav>
+        <ul class="nav-links">
+          <li><a href="/dashboard" class="{{ 'active' if active_tab == 'dashboard' else '' }}">Dashboard</a></li>
+          <li><a href="/market" class="{{ 'active' if active_tab == 'market' else '' }}">Market</a></li>
+          <li><a href="/watchlist" class="{{ 'active' if active_tab == 'watchlist' else '' }}">Watchlist</a></li>
+          <li><a href="/orders" class="{{ 'active' if active_tab == 'orders' else '' }}">Orders</a></li>
+          <li><a href="/positions" class="{{ 'active' if active_tab == 'positions' else '' }}">Positions</a></li>
+          <li><a href="/holdings" class="{{ 'active' if active_tab == 'holdings' else '' }}">Holdings</a></li>
+          <li><a href="/funds" class="{{ 'active' if active_tab == 'funds' else '' }}">Funds</a></li>
+          <li><a href="/analytics" class="{{ 'active' if active_tab == 'analytics' else '' }}">Analytics</a></li>
+        </ul>
+      </nav>
+      {% endif %}
+
+      <div class="nav-actions">
+        <!-- Light / Dark Toggle -->
+        <button id="themeToggle" class="btn-icon" aria-label="Toggle theme">☀️</button>
+
+        {% if user %}
+        <!-- Cash Funds Pill with Quick Deposit '+' button -->
+        <div style="display: flex; align-items: center; gap: 6px; background: var(--bg-hover); padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); font-size: 0.85rem;">
+          <span style="color: var(--text-muted); font-size: 0.75rem;">Cash:</span>
+          <strong style="color: var(--text-primary); font-family: monospace;">₹{{ "{:,.2f}".format(user.available_funds) }}</strong>
+          <button type="button" onclick="openGlobalDepositModal()" class="btn btn-primary" title="Add Simulated Funds" style="width: 22px; height: 22px; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1rem; font-weight: 700; line-height: 1; cursor: pointer;">+</button>
+        </div>
+
+        <a href="/profile" class="user-badge" title="View Profile">
+          {% if user.avatar_url %}
+          <img src="{{ user.avatar_url }}" alt="Avatar" style="width: 18px; height: 18px; border-radius: 50%; object-fit: cover;">
+          {% else %}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          {% endif %}
+          <span>{{ user.full_name or user.client_id }}</span>
+        </a>
+        <a href="/admin" class="btn btn-outline btn-sm">Admin</a>
+        <a href="/logout" class="btn btn-outline btn-sm">Logout</a>
+        {% else %}
+        <a href="/login" class="btn btn-primary btn-sm">Log in</a>
+        <a href="/register" class="btn btn-outline btn-sm">Sign up</a>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+
+  <!-- Notification banners -->
+  {% if request.query_params.get('success') %}
+  <div class="main-wrapper" style="padding-bottom: 0; padding-top: 16px;">
+    <div class="alert alert-success">
+      <span>✓ {{ request.query_params.get('success') }}</span>
+    </div>
+  </div>
+  {% endif %}
+  {% if request.query_params.get('error') %}
+  <div class="main-wrapper" style="padding-bottom: 0; padding-top: 16px;">
+    <div class="alert alert-error">
+      <span>✕ {{ request.query_params.get('error') }}</span>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Main Content Container -->
+  <main class="main-wrapper">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Global Buy / Sell Order Modal -->
+  <div id="orderModal" class="modal-overlay" data-user-funds="{{ user.available_funds if user else 0 }}">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="card-header" style="margin-bottom: 12px;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <h3 id="modalDisplaySymbol" class="card-title" style="font-size: 1.25rem;">STOCK</h3>
+            <span id="modalDisplayPrice" class="stat-value" style="font-size: 1.15rem; color: var(--text-primary);">₹0.00</span>
+            <span id="modalMarketBadge" class="badge" style="font-size: 0.72rem; padding: 2px 6px;">MARKET</span>
+          </div>
+          <div id="modalDisplayName" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;"></div>
+        </div>
+        <button type="button" class="btn-icon" onclick="closeOrderModal()" style="border: none; font-size: 1.2rem; cursor: pointer;">✕</button>
+      </div>
+
+      <!-- Action selector: BUY / SELL -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+        <button type="button" id="orderModalBuyBtn" class="btn btn-buy" onclick="setOrderAction('BUY')">BUY</button>
+        <button type="button" id="orderModalSellBtn" class="btn btn-outline" onclick="setOrderAction('SELL')">SELL</button>
+      </div>
+
+      <!-- Live Context Bar (Available Funds, Holdings, Intraday) -->
+      <div style="background: var(--bg-hover); padding: 12px 14px; border-radius: var(--radius-sm); margin-bottom: 14px; font-size: 0.85rem; display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--text-secondary);">Available Funds:</span>
+          <span id="modalAvailableFunds" style="font-weight: 700; color: var(--text-primary);">₹{{ "{:,.2f}".format(user.available_funds) if user else "0.00" }}</span>
+        </div>
+        <div id="modalHoldingRow" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 6px;">
+          <span style="color: var(--text-secondary);">Delivery Holding (CNC): <strong id="modalHoldingQty" style="color: var(--text-primary);">0 shares</strong></span>
+          <span style="color: var(--text-secondary);">Intraday (MIS): <strong id="modalIntradayQty" style="color: var(--text-primary);">0 shares</strong></span>
+        </div>
+      </div>
+
+      <form action="/order/place" method="POST" id="orderModalForm" novalidate onsubmit="handleOrderSubmit(event)">
+        <input type="hidden" name="symbol" id="modalSymbol" value="">
+        <input type="hidden" name="transaction_type" id="modalTransactionType" value="BUY">
+        <input type="hidden" name="next" value="{{ request.url.path }}">
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+          <div class="form-group">
+            <label class="form-label">Product</label>
+            <select name="product_type" id="modalProductTypeSelect" class="form-select" onchange="calculateOrderEstimatedTotal()">
+              <option value="CNC">Delivery (CNC)</option>
+              <option value="MIS">Intraday (MIS 5x)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Order Type</label>
+            <select name="order_type" id="modalOrderTypeSelect" class="form-select" onchange="onOrderTypeChange(this.value)">
+              <option value="MARKET">Market</option>
+              <option value="LIMIT">Limit</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+          <div class="form-group">
+            <label class="form-label">Quantity</label>
+            <input type="number" name="quantity" id="modalQtyInput" class="form-control" min="1" value="1" required oninput="calculateOrderEstimatedTotal()">
+          </div>
+          <div class="form-group" id="modalPriceContainer" style="display: none;">
+            <label class="form-label">Limit Price (₹)</label>
+            <input type="number" step="any" name="price" id="modalPriceInput" class="form-control" placeholder="0.00" oninput="calculateOrderEstimatedTotal()">
+          </div>
+        </div>
+
+        <!-- Dynamic Calculation Card (Required Amount / Funds Remaining / Proceeds) -->
+        <div style="background: var(--bg-hover); padding: 12px 14px; border-radius: var(--radius-sm); margin-bottom: 12px; font-size: 0.85rem; display: flex; flex-direction: column; gap: 6px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span id="modalAmountLabel" style="color: var(--text-secondary);">Required Amount:</span>
+            <span id="modalEstimatedTotal" style="font-weight: 700; font-size: 0.95rem; color: var(--text-primary);">₹0.00</span>
+          </div>
+          <div id="modalRemainingRow" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 6px;">
+            <span id="modalRemainingLabel" style="color: var(--text-secondary);">Funds Remaining:</span>
+            <span id="modalFundsRemaining" style="font-weight: 600; color: var(--text-primary);">₹0.00</span>
+          </div>
+        </div>
+
+        <!-- Live Validation Alert Box -->
+        <div id="modalValidationAlert" style="display: none; padding: 10px 12px; border-radius: var(--radius-sm); font-size: 0.84rem; font-weight: 600; margin-bottom: 12px;" class="alert-error">
+          <span id="modalValidationMessage"></span>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+          <button type="button" class="btn btn-outline" style="flex: 1;" onclick="closeOrderModal()">Cancel</button>
+          <button type="button" id="orderModalSubmitBtn" class="btn btn-buy" style="flex: 2;" onclick="handleOrderSubmit(event)">Place BUY Order</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Global Modal: Add Simulated Funds -->
+  <div id="globalDepositModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 440px;">
+      <div class="card-header" style="margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.25rem;">💰</span>
+          <h3 class="card-title">Add Simulated Funds</h3>
+        </div>
+        <button type="button" class="btn-icon" onclick="closeGlobalDepositModal()" style="border: none;">✕</button>
+      </div>
+
+      <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 16px;">
+        Deposit virtual sandbox money to your account to practice buying and selling shares. Real money is not involved.
+      </p>
+
+      <form action="/funds/deposit" method="POST">
+        <input type="hidden" name="next" value="{{ request.url.path }}">
+
+        <div class="form-group">
+          <label class="form-label">Payment Mode</label>
+          <select name="method" class="form-select">
+            <option value="UPI">UPI (Instant Simulation)</option>
+            <option value="NetBanking">Netbanking (HDFC / ICICI / SBI)</option>
+            <option value="IMPS">IMPS Bank Transfer</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Amount (₹)</label>
+          <input type="number" name="amount" id="globalDepositInput" class="form-control" value="50000" min="100" max="10000000" step="500" required>
+        </div>
+
+        <!-- Quick Chips -->
+        <div style="margin-bottom: 20px;">
+          <span style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 6px;">QUICK AMOUNTS:</span>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="setGlobalDeposit(10000)" style="font-size: 0.78rem;">+₹10,000</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="setGlobalDeposit(50000)" style="font-size: 0.78rem;">+₹50,000</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="setGlobalDeposit(100000)" style="font-size: 0.78rem;">+₹1,00,000</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="setGlobalDeposit(500000)" style="font-size: 0.78rem;">+₹5,00,000</button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 11px; font-weight: 600;">
+          + Deposit Cash to Account
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+  function openGlobalDepositModal() {
+    const m = document.getElementById("globalDepositModal");
+    if (m) m.style.display = "flex";
+  }
+  function closeGlobalDepositModal() {
+    const m = document.getElementById("globalDepositModal");
+    if (m) m.style.display = "none";
+  }
+  function setGlobalDeposit(val) {
+    const input = document.getElementById("globalDepositInput");
+    if (input) input.value = val;
+  }
+  </script>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer"></div>
+
+  <!-- Footer with Mandatory Simulation Banner -->
+  <footer class="footer">
+    <div style="max-width: 1400px; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span class="sim-banner">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Simulated data - not a real broker
+        </span>
+        <span>© 2026 {{ broker_name }} Sandbox Platform. For development and API integration testing.</span>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <a href="/docs" target="_blank" style="color: var(--text-secondary);">Swagger API Docs</a>
+        <a href="/health" target="_blank" style="color: var(--text-secondary);">Health Check</a>
+        <a href="/admin" style="color: var(--text-secondary);">Admin Sandbox</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/js/main.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

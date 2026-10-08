@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block title %}Market - {{ broker_name }}{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom: 20px;">
+  <!-- Filter & Search Controls -->
+  <form action="/market" method="GET" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
+    <div style="flex: 2; min-width: 220px;">
+      <label class="form-label">Search Symbol, Name or ISIN</label>
+      <input type="text" name="q" value="{{ search_query }}" class="form-control" placeholder="e.g. RELIANCE, TCS, INE002A01018...">
+    </div>
+
+    <div style="flex: 1; min-width: 140px;">
+      <label class="form-label">Sector</label>
+      <select name="sector" class="form-select">
+        <option value="All">All Sectors</option>
+        {% for s in sectors %}
+        <option value="{{ s }}" {{ 'selected' if selected_sector == s else '' }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="flex: 1; min-width: 130px;">
+      <label class="form-label">Asset Class</label>
+      <select name="asset_class" class="form-select">
+        <option value="All">All Classes</option>
+        {% for ac in asset_classes %}
+        <option value="{{ ac }}" {{ 'selected' if selected_asset_class == ac else '' }}>{{ ac|upper }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div style="flex: 1; min-width: 120px;">
+      <label class="form-label">Sort By</label>
+      <select name="sort" class="form-select">
+        <option value="volume" {{ 'selected' if selected_sort == 'volume' else '' }}>Volume</option>
+        <option value="change" {{ 'selected' if selected_sort == 'change' else '' }}>Day Change</option>
+        <option value="price" {{ 'selected' if selected_sort == 'price' else '' }}>Price</option>
+        <option value="name" {{ 'selected' if selected_sort == 'name' else '' }}>Name</option>
+      </select>
+    </div>
+
+    <div style="flex: 1; min-width: 100px;">
+      <label class="form-label">Order</label>
+      <select name="order" class="form-select">
+        <option value="desc" {{ 'selected' if selected_order == 'desc' else '' }}>High to Low</option>
+        <option value="asc" {{ 'selected' if selected_order == 'asc' else '' }}>Low to High</option>
+      </select>
+    </div>
+
+    <div style="display: flex; gap: 8px;">
+      <button type="submit" class="btn btn-primary" style="height: 38px;">Filter</button>
+      <a href="/market" class="btn btn-outline" style="height: 38px;">Reset</a>
+    </div>
+  </form>
+</div>
+
+<!-- Instruments Table -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Instruments Master ({{ instruments|length }} available)</h3>
+    <span style="font-size: 0.8rem; color: var(--text-secondary);">Updates live via SSE</span>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Sector & ISIN</th>
+          <th>Asset Class</th>
+          <th>LTP (₹)</th>
+          <th>Day Change</th>
+          <th>Day High / Low</th>
+          <th>Volume</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inst in instruments %}
+        <tr>
+          <td>
+            <a href="/stock/{{ inst.symbol }}" style="font-weight: 700; color: var(--brand-primary); font-size: 0.95rem;">
+              {{ inst.symbol }}
+            </a>
+            <div style="font-size: 0.72rem; color: var(--text-secondary);">{{ inst.name[:28] }}</div>
+          </td>
+          <td>
+            <div style="font-size: 0.82rem; font-weight: 500;">{{ inst.sector }}</div>
+            <div style="font-size: 0.7rem; color: var(--text-muted); font-family: monospace;">{{ inst.isin }}</div>
+          </td>
+          <td>
+            <span class="badge badge-{{ inst.asset_class }}">{{ inst.asset_class }}</span>
+          </td>
+          <td style="font-weight: 700; font-size: 0.95rem;">
+            <span data-symbol-price="{{ inst.symbol }}">₹{{ "{:,.2f}".format(inst.current_price) }}</span>
+          </td>
+          <td>
+            {% set is_up = inst.day_change >= 0 %}
+            <div class="{{ 'text-up' if is_up else 'text-down' }}" style="font-weight: 600;">
+              <span data-symbol-chg="{{ inst.symbol }}">{{ "+" if is_up else "" }}₹{{ "%.2f"|format(inst.day_change) }}</span>
+            </div>
+            <div class="{{ 'text-up' if is_up else 'text-down' }}" style="font-size: 0.75rem;">
+              <span data-symbol-chg-pct="{{ inst.symbol }}">{{ "+" if is_up else "" }}{{ "%.2f"|format(inst.day_change_percentage) }}%</span>
+            </div>
+          </td>
+          <td style="font-size: 0.8rem; color: var(--text-secondary);">
+            H: <span data-symbol-high="{{ inst.symbol }}" style="color: var(--text-primary);">₹{{ "{:,.2f}".format(inst.high_price) }}</span><br>
+            L: <span data-symbol-low="{{ inst.symbol }}" style="color: var(--text-primary);">₹{{ "{:,.2f}".format(inst.low_price) }}</span>
+          </td>
+          <td style="font-size: 0.82rem;">
+            <span data-symbol-vol="{{ inst.symbol }}">{{ "{:,}".format(inst.volume) }}</span>
+          </td>
+          <td>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <button class="btn btn-buy btn-sm" onclick="openOrderModal('{{ inst.symbol }}', 'BUY')">BUY</button>
+              <button class="btn btn-sell btn-sm" onclick="openOrderModal('{{ inst.symbol }}', 'SELL')">SELL</button>
+              
+              {% if watchlists %}
+              <div style="position: relative; display: inline-block;">
+                <form action="/watchlist/add" method="POST" style="margin: 0;">
+                  <input type="hidden" name="instrument_id" value="{{ inst.id }}">
+                  <input type="hidden" name="watchlist_id" value="{{ watchlists[0].id }}">
+                  <button type="submit" class="btn btn-outline btn-sm" title="Add to {{ watchlists[0].name }} Watchlist">+</button>
+                </form>
+              </div>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

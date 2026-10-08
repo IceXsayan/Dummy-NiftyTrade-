@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Sandbox Controls - {{ broker_name }}{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+  <div>
+    <h2 style="font-size: 1.6rem; font-weight: 800; color: var(--text-primary);">Sandbox Admin & Demo Controls</h2>
+    <p style="font-size: 0.88rem; color: var(--text-secondary);">Direct control panel for live presentations, chaos testing, and portfolio sync demos</p>
+  </div>
+  
+  <!-- Reset All Data -->
+  <form action="/admin/reset-data" method="POST" onsubmit="return confirm('Reset all users, holdings, orders, and tokens back to pristine seed state?');">
+    <button type="submit" class="btn btn-outline" style="color: var(--red); border-color: var(--red-border);">
+      ⚠️ Reset Entire DB to Seed State
+    </button>
+  </form>
+</div>
+
+<!-- System Toggles Grid -->
+<div class="stat-grid" style="margin-bottom: 24px;">
+
+  <!-- Market Open/Close -->
+  <div class="stat-card">
+    <span class="stat-label">Market Status</span>
+    <span class="stat-value {{ 'text-up' if market_open else 'text-down' }}">
+      {{ "OPEN" if market_open else "CLOSED" }}
+    </span>
+    <span class="stat-sub" style="color: var(--text-secondary); margin-bottom: 12px;">
+      {{ "Prices drift, orders execute" if market_open else "Prices frozen, orders queued" }}
+    </span>
+    <form action="/admin/toggle-market" method="POST">
+      <button type="submit" class="btn {{ 'btn-sell' if market_open else 'btn-buy' }}" style="width: 100%;">
+        {{ "Close Market" if market_open else "Open Market" }}
+      </button>
+    </form>
+  </div>
+
+  <!-- Outage Simulation -->
+  <div class="stat-card">
+    <span class="stat-label">Simulate API Outage (503)</span>
+    <span class="stat-value {{ 'text-down' if is_outage else 'text-up' }}">
+      {{ "ACTIVE" if is_outage else "OFFLINE (NORMAL)" }}
+    </span>
+    <span class="stat-sub" style="color: var(--text-secondary); margin-bottom: 12px;">
+      {{ "Outage active for " ~ outage_remaining ~ "s" if is_outage else "Public API returns normal responses" }}
+    </span>
+    <form action="/admin/toggle-outage" method="POST">
+      <button type="submit" class="btn {{ 'btn-outline' if is_outage else 'btn-sell' }}" style="width: 100%;">
+        {{ "Clear Outage Now" if is_outage else "Trigger 60s Outage (503)" }}
+      </button>
+    </form>
+  </div>
+
+  <!-- Slow Mode -->
+  <div class="stat-card">
+    <span class="stat-label">API Latency (Slow Mode)</span>
+    <span class="stat-value {{ 'text-down' if is_slow_mode else 'text-up' }}">
+      {{ "5s DELAY" if is_slow_mode else "FAST (0s)" }}
+    </span>
+    <span class="stat-sub" style="color: var(--text-secondary); margin-bottom: 12px;">
+      {{ "Adds 5-second artificial latency to API" if is_slow_mode else "Normal instant response times" }}
+    </span>
+    <form action="/admin/toggle-slow-mode" method="POST">
+      <button type="submit" class="btn btn-outline" style="width: 100%;">
+        {{ "Disable Slow Mode" if is_slow_mode else "Enable Slow Mode (+5s)" }}
+      </button>
+    </form>
+  </div>
+
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; margin-bottom: 24px;">
+
+  <!-- 1. Simulate Trade -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">1. Simulate Immediate Trade</h3>
+    </div>
+    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 16px;">
+      Instantly execute a trade for a user and update their holdings/cash without waiting, to demo external portfolio sync in real time.
+    </p>
+
+    <form action="/admin/simulate-trade" method="POST">
+      <div class="form-group">
+        <label class="form-label">Target User</label>
+        <select name="user_id" class="form-select" required>
+          {% for u in users %}
+          <option value="{{ u.id }}">{{ u.username }} ({{ u.client_id }} - {{ u.full_name }})</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label class="form-label">Instrument</label>
+          <select name="symbol" class="form-select" required>
+            {% for inst in instruments %}
+            <option value="{{ inst.symbol }}">{{ inst.symbol }} - ₹{{ inst.current_price }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Side</label>
+          <select name="side" class="form-select" required>
+            <option value="BUY">BUY</option>
+            <option value="SELL">SELL</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label class="form-label">Quantity</label>
+          <input type="number" name="quantity" class="form-control" value="10" min="1" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Execution Price (₹)</label>
+          <input type="number" step="0.05" name="price" class="form-control" value="1000.00" required>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="width: 100%;">
+        Execute & Sync Holdings
+      </button>
+    </form>
+  </div>
+
+  <!-- 2. Expire User Token Instantly -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">2. Expire Access Token Instantly</h3>
+    </div>
+    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 16px;">
+      Forces a token to expire immediately. Any subsequent calls to <code>/api/v1/*</code> with this token will return HTTP 401 <code>{"error": "token_expired"}</code>, allowing you to demo the aggregator's reconnect/refresh flow!
+    </p>
+
+    {% if tokens %}
+    <form action="/admin/expire-token" method="POST">
+      <div class="form-group">
+        <label class="form-label">Active OAuth Token</label>
+        <select name="token_id" class="form-select" required>
+          {% for t in tokens %}
+          <option value="{{ t.id }}">
+            User ID {{ t.user_id }} &bull; {{ t.token_preview }} &bull; Client: {{ t.client_id }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button type="submit" class="btn btn-sell" style="width: 100%;">
+        Expire Token Now (Trigger 401 token_expired)
+      </button>
+    </form>
+    {% else %}
+    <div style="text-align: center; padding: 24px; color: var(--text-secondary); background: var(--bg-hover); border-radius: var(--radius-sm);">
+      No active tokens currently issued. Authorize via <code>/oauth/authorize</code> to create one.
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Direct Add / Edit Holdings -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Direct Add / Edit User Holdings</h3>
+    <span style="font-size: 0.8rem; color: var(--text-secondary);">Set quantity to 0 to remove a holding</span>
+  </div>
+
+  <!-- Add or Update Form -->
+  <form action="/admin/save-holding" method="POST" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) 140px; gap: 12px; align-items: flex-end; margin-bottom: 24px; background: var(--bg-hover); padding: 16px; border-radius: var(--radius-sm);">
+    <div class="form-group" style="margin: 0;">
+      <label class="form-label">User</label>
+      <select name="user_id" class="form-select" required>
+        {% for u in users %}
+        <option value="{{ u.id }}">{{ u.username }} ({{ u.client_id }})</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group" style="margin: 0;">
+      <label class="form-label">Instrument</label>
+      <select name="instrument_id" class="form-select" required>
+        {% for inst in instruments %}
+        <option value="{{ inst.id }}">{{ inst.symbol }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group" style="margin: 0;">
+      <label class="form-label">Quantity</label>
+      <input type="number" name="quantity" class="form-control" value="25" min="0" required>
+    </div>
+
+    <div class="form-group" style="margin: 0;">
+      <label class="form-label">Avg. Buy Price (₹)</label>
+      <input type="number" step="0.05" name="average_price" class="form-control" value="1500.00" required>
+    </div>
+
+    <button type="submit" class="btn btn-primary" style="height: 38px;">Save Holding</button>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Symbol</th>
+          <th>Qty</th>
+          <th>Avg. Price</th>
+          <th>Current Value</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in holdings %}
+        <tr>
+          <td>{{ h.user.username }} ({{ h.user.client_id }})</td>
+          <td><strong>{{ h.instrument.symbol }}</strong></td>
+          <td>{{ h.quantity }}</td>
+          <td>₹{{ "{:,.2f}".format(h.average_price) }}</td>
+          <td>₹{{ "{:,.2f}".format(h.quantity * h.instrument.current_price) }}</td>
+          <td>
+            <form action="/admin/save-holding" method="POST" style="margin: 0;">
+              <input type="hidden" name="user_id" value="{{ h.user_id }}">
+              <input type="hidden" name="instrument_id" value="{{ h.instrument_id }}">
+              <input type="hidden" name="quantity" value="0">
+              <input type="hidden" name="average_price" value="0">
+              <button type="submit" class="btn btn-outline btn-sm" style="color: var(--red);">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

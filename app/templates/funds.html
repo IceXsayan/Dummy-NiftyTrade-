@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}Funds & Margin - {{ broker_name }}{% endblock %}
+
+{% block content %}
+<div class="stat-grid" style="margin-bottom: 24px;">
+  <div class="stat-card">
+    <span class="stat-label">Available Cash Balance</span>
+    <span class="stat-value">₹{{ "{:,.2f}".format(user.available_funds) }}</span>
+    <span class="stat-sub" style="color: var(--green);">Available for new orders</span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-label">Used Margin</span>
+    <span class="stat-value">₹{{ "{:,.2f}".format(user.used_margin) }}</span>
+    <span class="stat-sub" style="color: var(--text-secondary);">Blocked for intraday / open orders</span>
+  </div>
+
+  <div class="stat-card">
+    <span class="stat-label">Total Account Balance</span>
+    <span class="stat-value">₹{{ "{:,.2f}".format(user.available_funds + user.used_margin) }}</span>
+    <span class="stat-sub" style="color: var(--text-secondary);">Total cash net of debits</span>
+  </div>
+
+  <div class="stat-card" style="justify-content: center; gap: 8px;">
+    <button class="btn btn-primary" onclick="openDepositModal()" style="width: 100%;">+ Add Funds (Simulated)</button>
+    <button class="btn btn-outline" onclick="openWithdrawModal()" style="width: 100%;">Withdraw to Bank</button>
+  </div>
+</div>
+
+<!-- Transaction Ledger -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Transaction Ledger</h3>
+    <span style="font-size: 0.8rem; color: var(--text-secondary);">Showing recent deposits, debits and payouts</span>
+  </div>
+
+  {% if transactions %}
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Date & Time</th>
+          <th>Reference ID</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Amount</th>
+          <th>Balance After</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tx in transactions %}
+        <tr>
+          <td style="font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap;">
+            {{ tx.created_at.strftime('%d %b %Y, %H:%M') if tx.created_at else '' }}
+          </td>
+          <td style="font-family: monospace; font-size: 0.78rem;">{{ tx.reference_id or '-' }}</td>
+          <td>
+            <span class="badge" style="background: var(--bg-hover);">{{ tx.type }}</span>
+          </td>
+          <td style="font-size: 0.85rem;">{{ tx.description }}</td>
+          <td style="font-weight: 700;">
+            {% if tx.type in ['DEPOSIT', 'TRADE_CREDIT'] %}
+            <span class="text-up">+₹{{ "{:,.2f}".format(tx.amount) }}</span>
+            {% else %}
+            <span class="text-down">-₹{{ "{:,.2f}".format(tx.amount) }}</span>
+            {% endif %}
+          </td>
+          <td style="font-weight: 600;">₹{{ "{:,.2f}".format(tx.balance_after) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align: center; padding: 48px; color: var(--text-secondary);">
+    <p>No transaction history recorded yet.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Modal Add Funds -->
+<div id="depositModal" class="modal-overlay">
+  <div class="modal-content">
+    <div class="card-header">
+      <h3 class="card-title">Add Funds (Simulated Payin)</h3>
+      <button class="btn-icon" onclick="closeDepositModal()" style="border: none;">✕</button>
+    </div>
+    <form action="/funds/deposit" method="POST">
+      <div class="form-group">
+        <label class="form-label">Payment Mode</label>
+        <select name="method" class="form-select">
+          <option value="UPI">UPI (Instant - Zero Fee)</option>
+          <option value="NetBanking">Netbanking (HDFC / ICICI / SBI)</option>
+          <option value="IMPS">IMPS Bank Transfer</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Amount (₹)</label>
+        <input type="number" name="amount" class="form-control" placeholder="e.g. 50000" min="100" step="100" value="50000" required>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="setDepositAmount(10000)">+10K</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setDepositAmount(50000)">+50K</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setDepositAmount(100000)">+1 Lakh</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setDepositAmount(500000)">+5 Lakh</button>
+      </div>
+
+      <div style="display: flex; gap: 10px;">
+        <button type="button" class="btn btn-outline" style="flex: 1;" onclick="closeDepositModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" style="flex: 2;">Confirm Deposit</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal Withdraw Funds -->
+<div id="withdrawModal" class="modal-overlay">
+  <div class="modal-content">
+    <div class="card-header">
+      <h3 class="card-title">Withdraw to Bank Account</h3>
+      <button class="btn-icon" onclick="closeWithdrawModal()" style="border: none;">✕</button>
+    </div>
+    <form action="/funds/withdraw" method="POST">
+      <div style="background: var(--bg-hover); padding: 12px; border-radius: var(--radius-sm); margin-bottom: 16px; font-size: 0.85rem;">
+        <div style="color: var(--text-secondary); margin-bottom: 4px;">Primary Bank Account:</div>
+        <div style="font-weight: 600; color: var(--text-primary);">{{ user.bank_name }} - {{ user.bank_account_masked }}</div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); font-family: monospace;">IFSC: {{ user.bank_ifsc }}</div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Withdrawal Amount (₹)</label>
+        <input type="number" name="amount" id="withdrawAmountInput" class="form-control" max="{{ user.available_funds }}" min="100" placeholder="Max: ₹{{ user.available_funds }}" required>
+        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px;">
+          Max withdrawable cash: ₹{{ "{:,.2f}".format(user.available_funds) }}
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 10px;">
+        <button type="button" class="btn btn-outline" style="flex: 1;" onclick="closeWithdrawModal()">Cancel</button>
+        <button type="submit" class="btn btn-sell" style="flex: 2;">Request Payout</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openDepositModal() { document.getElementById("depositModal").classList.add("active"); }
+function closeDepositModal() { document.getElementById("depositModal").classList.remove("active"); }
+function openWithdrawModal() { document.getElementById("withdrawModal").classList.add("active"); }
+function closeWithdrawModal() { document.getElementById("withdrawModal").classList.remove("active"); }
+function setDepositAmount(amt) { document.querySelector('input[name="amount"]').value = amt; }
+</script>
+{% endblock %}
