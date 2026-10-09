@@ -346,6 +346,9 @@ a:hover {
 .text-down {
   color: var(--red) !important;
 }
+.text-muted {
+  color: var(--text-muted) !important;
+}
 .bg-up {
   background-color: var(--green-bg);
   color: var(--green);
