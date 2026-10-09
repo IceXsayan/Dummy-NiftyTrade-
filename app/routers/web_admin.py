@@ -12,9 +12,12 @@ from app.models.user import User
 from app.models.instrument import Instrument
 from app.models.trading import Holding, Order, Trade, Transaction
 from app.models.oauth import OAuthToken
+from app.models.outbox import OutboxEvent
 from app.models.system import SystemConfig
 from app.services.seed_service import seed_database
 from app.services.price_simulator import is_market_open
+from app.services.outbox_service import trigger_outbox_worker
+from app.services.holdings_service import find_unbacked_holdings, purge_unbacked_holdings
 
 router = APIRouter(prefix="/admin", tags=["Admin & Demo Controls"])
 templates = Jinja2Templates(directory="app/templates")
@@ -60,6 +63,18 @@ async def admin_page(
     # Holdings list for direct edit
     all_holdings = db.query(Holding).all()
 
+    # Outbox Events & Status
+    outbox_events = db.query(OutboxEvent).order_by(OutboxEvent.created_at.desc()).limit(50).all()
+    outbox_total = db.query(OutboxEvent).count()
+    outbox_pending = db.query(OutboxEvent).filter(OutboxEvent.status == "PENDING").count()
+    outbox_sent = db.query(OutboxEvent).filter(OutboxEvent.status == "SENT").count()
+    outbox_failed = db.query(OutboxEvent).filter(OutboxEvent.status == "FAILED").count()
+
+    # Unbacked Starter Holdings
+    unbacked_holdings = find_unbacked_holdings(db)
+    unbacked_user_ids = {u["user_id"] for u in unbacked_holdings}
+    users_with_unbacked = db.query(User).filter(User.id.in_(unbacked_user_ids)).all() if unbacked_user_ids else []
+
     return templates.TemplateResponse(
         request=request,
         name="admin.html",
@@ -72,7 +87,14 @@ async def admin_page(
             "market_open": market_open,
             "is_outage": is_outage,
             "outage_remaining": outage_remaining,
-            "is_slow_mode": is_slow_mode
+            "is_slow_mode": is_slow_mode,
+            "outbox_events": outbox_events,
+            "outbox_total": outbox_total,
+            "outbox_pending": outbox_pending,
+            "outbox_sent": outbox_sent,
+            "outbox_failed": outbox_failed,
+            "unbacked_holdings": unbacked_holdings,
+            "users_with_unbacked": users_with_unbacked
         }
     )
 
@@ -250,3 +272,33 @@ async def save_holding_action(
             db.add(Holding(user_id=user_id, instrument_id=instrument_id, quantity=quantity, average_price=average_price))
         db.commit()
     return RedirectResponse(url="/admin?success=Holding saved successfully", status_code=status.HTTP_303_SEE_OTHER)
+
+@router.post("/outbox/resend-all")
+async def resend_all_outbox_events(db: Session = Depends(get_db)):
+    """
+    Resets all outbox events to PENDING and triggers the background worker.
+    """
+    events = db.query(OutboxEvent).all()
+    for ev in events:
+        ev.status = "PENDING"
+        ev.attempts = 0
+        ev.last_error = None
+    db.commit()
+    trigger_outbox_worker()
+    return RedirectResponse(url="/admin?success=All outbox events queued for resend", status_code=status.HTTP_303_SEE_OTHER)
+
+@router.post("/purge-user-starter-holdings")
+async def purge_user_starter_holdings_action(
+    user_id: int = Form(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Admin action: Remove starter/seeded unbacked holdings for a user.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return RedirectResponse(url="/admin?error=User not found", status_code=status.HTTP_303_SEE_OTHER)
+
+    count, affected = purge_unbacked_holdings(db, user_id=user.id)
+    db.commit()
+    return RedirectResponse(url=f"/admin?success=Removed {count} unbacked starter holdings for {user.email}", status_code=status.HTTP_303_SEE_OTHER)

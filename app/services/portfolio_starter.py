@@ -5,6 +5,7 @@ import hashlib
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.instrument import Instrument
 from app.models.trading import Holding
 from app.models.user import User
@@ -22,20 +23,19 @@ def load_shared_instruments() -> List[Dict[str, Any]]:
                 return json.load(f)
     raise FileNotFoundError("instruments_shared.json not found")
 
-def generate_starter_portfolio(db: Session, user: User) -> List[Holding]:
+def generate_starter_portfolio(db: Session, user: User, force: bool = False) -> List[Holding]:
     """
-    Generate a deterministic starter portfolio for a new non-demo user using instruments_shared.json.
-    - Provider A theme: stocks + 1 REIT.
-    - Include 2-3 overlapping ISINs such as RELIANCE, TCS, HDFCBANK.
-    - Same email must always receive the same holdings after DB reset.
-    - Average price within +/-15% of current price.
-    - Starting wallet = ₹10,00,000.
+    Generate a deterministic starter portfolio for a user ONLY if SEED_STARTER_PORTFOLIO is enabled or force is True.
+    When SEED_STARTER_PORTFOLIO is false, no holdings are created.
     """
-    norm_email = normalize_email(user.email)
-    
-    # 1. Set starting wallet balance to ₹10,00,000
-    user.available_funds = 1000000.0
+    # 1. Set starting wallet balance
+    user.available_funds = getattr(settings, "STARTING_FUNDS", 1000000.0)
     user.used_margin = 0.0
+
+    if not getattr(settings, "SEED_STARTER_PORTFOLIO", False) and not force:
+        return []
+
+    norm_email = normalize_email(user.email)
 
     # 2. Derive deterministic RNG seed from normalized email
     seed_hash = hashlib.sha256(f"starter_portfolio_provider_a:{norm_email}".encode("utf-8")).hexdigest()

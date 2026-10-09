@@ -1,4 +1,5 @@
 import time
+import asyncio
 import logging
 import threading
 from datetime import datetime, timezone
@@ -16,16 +17,14 @@ from app.shared_identity import normalize_email
 
 logger = logging.getLogger(__name__)
 
-def enqueue_outbox_event(
+def enqueue_outbox_event_in_tx(
     db: Session,
     email: str,
-    event_type: str = "HOLDINGS_CHANGED",
-    dispatch_async: bool = True
+    event_type: str = "HOLDINGS_CHANGED"
 ) -> OutboxEvent:
     """
-    Enqueue an outbox event for TradeOne.
-    Send only: provider, email, event=HOLDINGS_CHANGED, occurredAt.
-    Never send holdings quantities in the event.
+    Inserts an outbox event into the given session/transaction WITHOUT committing.
+    The caller's transaction commit will commit the outbox event and the trade together.
     """
     norm_email = normalize_email(email)
     occurred_at = datetime.now(timezone.utc).isoformat()
@@ -40,19 +39,40 @@ def enqueue_outbox_event(
         max_attempts=10
     )
     db.add(outbox_event)
+
+    # Track in session info so after_commit hook knows which events were created
+    pending_events = db.info.setdefault("_pending_outbox_objs", [])
+    pending_events.append(outbox_event)
+    db.info.setdefault("_outbox_emails_pending", set()).add(norm_email)
+
+    return outbox_event
+
+def enqueue_outbox_event(
+    db: Session,
+    email: str,
+    event_type: str = "HOLDINGS_CHANGED",
+    dispatch_async: bool = True
+) -> OutboxEvent:
+    """
+    Enqueue an outbox event and commit immediately.
+    """
+    outbox_event = enqueue_outbox_event_in_tx(db, email, event_type=event_type)
     db.commit()
     db.refresh(outbox_event)
 
     if dispatch_async:
-        # Asynchronous background thread to ensure trades/requests are NEVER blocked
-        t = threading.Thread(
-            target=post_event_with_retry,
-            args=(outbox_event.id,),
-            daemon=True
-        )
-        t.start()
+        trigger_single_event_delivery(outbox_event.id)
 
     return outbox_event
+
+def trigger_single_event_delivery(event_id: int):
+    """Deliver an event in a background daemon thread."""
+    t = threading.Thread(
+        target=post_event_with_retry,
+        args=(event_id,),
+        daemon=True
+    )
+    t.start()
 
 def post_event_with_retry(
     event_id: int,
@@ -64,6 +84,7 @@ def post_event_with_retry(
     """
     Deliver an outbox event with exponential backoff up to max_attempts (default 10).
     Never blocks trading threads.
+    Logs each delivery result.
     """
     close_db = False
     if db is None:
@@ -72,9 +93,8 @@ def post_event_with_retry(
 
     try:
         outbox_event = db.query(OutboxEvent).filter(OutboxEvent.id == event_id).first()
-        if not outbox_event:
-            return False
-
+        if not outbox_event or outbox_event.status == "SENT":
+            return True
 
         tradeone_url = getattr(settings, "TRADEONE_URL", "http://localhost:8080").rstrip("/")
         endpoint = f"{tradeone_url}/internal/v1/events"
@@ -100,7 +120,8 @@ def post_event_with_retry(
             created_client = True
 
         try:
-            for attempt in range(1, max_attempts + 1):
+            current_attempts = outbox_event.attempts
+            for attempt in range(current_attempts + 1, max_attempts + 1):
                 outbox_event.attempts = attempt
                 try:
                     resp = client.post(endpoint, json=payload, headers=headers)
@@ -108,16 +129,21 @@ def post_event_with_retry(
                         outbox_event.status = "SENT"
                         outbox_event.last_error = None
                         db.commit()
+                        logger.info(f"Outbox event {event_id} ({outbox_event.email}) delivered successfully to {endpoint} on attempt {attempt}")
                         return True
                     else:
                         err_msg = f"HTTP {resp.status_code}: {resp.text}"
                         outbox_event.last_error = err_msg
+                        logger.warning(f"Outbox event {event_id} attempt {attempt} failed: {err_msg}")
                 except Exception as exc:
-                    outbox_event.last_error = str(exc)
+                    err_msg = str(exc)
+                    outbox_event.last_error = err_msg
+                    logger.warning(f"Outbox event {event_id} attempt {attempt} error: {err_msg}")
 
                 if attempt >= max_attempts:
                     outbox_event.status = "FAILED"
                     db.commit()
+                    logger.error(f"Outbox event {event_id} permanently failed after {max_attempts} attempts: {outbox_event.last_error}")
                     return False
 
                 db.commit()
@@ -137,53 +163,84 @@ def post_event_with_retry(
         if close_db:
             db.close()
 
-
-def dispatch_holdings_changed_for_user_ids(user_ids: List[int]):
-    """Background helper to lookup user emails and enqueue outbox events."""
-    def _run():
+def process_pending_outbox_events(db: Optional[Session] = None):
+    """Process all pending outbox events in the database."""
+    close_db = False
+    if db is None:
         db = SessionLocal()
-        try:
-            users = db.query(User).filter(User.id.in_(user_ids)).all()
-            for u in users:
-                if u and u.email:
-                    enqueue_outbox_event(db, u.email, event_type="HOLDINGS_CHANGED", dispatch_async=True)
-        except Exception as e:
-            logger.error(f"Failed to dispatch holdings changed events: {e}")
-        finally:
+        close_db = True
+
+    try:
+        pending = db.query(OutboxEvent).filter(
+            OutboxEvent.status == "PENDING",
+            OutboxEvent.attempts < OutboxEvent.max_attempts
+        ).all()
+        for ev in pending:
+            trigger_single_event_delivery(ev.id)
+    except Exception as e:
+        logger.error(f"Error checking pending outbox events: {e}")
+    finally:
+        if close_db:
             db.close()
 
-    t = threading.Thread(target=_run, daemon=True)
+def trigger_outbox_worker():
+    """Trigger background sweep of pending events."""
+    t = threading.Thread(target=process_pending_outbox_events, daemon=True)
     t.start()
 
+async def run_outbox_worker_loop():
+    """Periodic background worker for pending/retryable outbox events."""
+    while True:
+        try:
+            process_pending_outbox_events()
+        except Exception as e:
+            logger.error(f"Error in background outbox worker loop: {e}")
+        await asyncio.sleep(5)
+
 # --- SQLAlchemy Lifecycle Hooks for Committed Holdings Changes ---
-@event.listens_for(Session, "after_flush")
-def _track_holdings_after_flush(session, flush_context):
-    """Detect if any Holding rows were added, modified, or deleted."""
+@event.listens_for(Session, "before_flush")
+def _handle_holdings_before_flush(session, flush_context, instances):
+    """
+    Automatically creates OutboxEvent in the same transaction whenever
+    Holding rows are added, modified, or deleted.
+    """
     try:
-        modified_users = session.info.setdefault("_modified_holding_user_ids", set())
-        for obj in session.new | session.dirty | session.deleted:
-            if isinstance(obj, Holding):
-                if obj.user_id:
-                    modified_users.add(obj.user_id)
-    except Exception:
-        pass
+        pending_emails = session.info.setdefault("_outbox_emails_pending", set())
+        for obj in list(session.new) + list(session.dirty) + list(session.deleted):
+            if isinstance(obj, Holding) and obj.user_id:
+                # Find user email
+                user = obj.user or session.query(User).filter(User.id == obj.user_id).first()
+                if user and user.email:
+                    norm = normalize_email(user.email)
+                    if norm not in pending_emails:
+                        enqueue_outbox_event_in_tx(session, norm, "HOLDINGS_CHANGED")
+    except Exception as e:
+        logger.error(f"Error in before_flush outbox hook: {e}")
 
 @event.listens_for(Session, "after_commit")
 def _notify_holdings_after_commit(session):
-    """Trigger outbox enqueueing only after the holdings change is committed."""
+    """
+    After the transaction commits, dispatch background delivery for any newly created events.
+    """
     try:
-        user_ids = list(session.info.get("_modified_holding_user_ids", set()))
-        if user_ids:
-            session.info["_modified_holding_user_ids"].clear()
-            dispatch_holdings_changed_for_user_ids(user_ids)
-    except Exception:
-        pass
+        pending_objs = session.info.get("_pending_outbox_objs", [])
+        event_ids = [ev.id for ev in pending_objs if hasattr(ev, "id") and ev.id]
+        session.info["_pending_outbox_objs"] = []
+        if "_outbox_emails_pending" in session.info:
+            session.info["_outbox_emails_pending"].clear()
+
+        for eid in event_ids:
+            trigger_single_event_delivery(eid)
+    except Exception as e:
+        logger.error(f"Error in after_commit outbox hook: {e}")
 
 @event.listens_for(Session, "after_rollback")
 def _cleanup_holdings_after_rollback(session):
-    """Clear pending tracked user IDs on rollback."""
+    """Clean up tracking state if transaction rolls back."""
     try:
-        if "_modified_holding_user_ids" in session.info:
-            session.info["_modified_holding_user_ids"].clear()
+        if "_pending_outbox_objs" in session.info:
+            session.info["_pending_outbox_objs"] = []
+        if "_outbox_emails_pending" in session.info:
+            session.info["_outbox_emails_pending"].clear()
     except Exception:
         pass

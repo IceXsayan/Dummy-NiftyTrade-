@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     INTERNAL_API_KEY: str = "tradeone-internal-secret-key"
     TRADEONE_URL: str = "http://localhost:8080"
     
+    # Funds & Starter Portfolio Configuration
+    STARTING_FUNDS: float = 1000000.0
+    SEED_STARTER_PORTFOLIO: bool = False
+    DEMO_MODE: bool = False
+    
     # Google OAuth
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""

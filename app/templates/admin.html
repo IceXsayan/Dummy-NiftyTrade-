@@ -238,4 +238,113 @@
     </table>
   </div>
 </div>
+
+<!-- 4. Remove Starter / Seeded Holdings for a User -->
+<div class="card" style="margin-bottom: 24px;">
+  <div class="card-header">
+    <h3 class="card-title">4. Remove Starter / Seeded Holdings for a User</h3>
+    <span class="badge badge-info">{{ unbacked_holdings|length }} unbacked holdings detected</span>
+  </div>
+  <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 16px;">
+    Removes fake/starter holdings that are not backed by real executed delivery trades. Real executed trades are never touched.
+    Fires a <code>HOLDINGS_CHANGED</code> event to TradeOne upon removal.
+  </p>
+
+  <form action="/admin/purge-user-starter-holdings" method="POST" style="display: flex; gap: 12px; align-items: flex-end; max-width: 600px;">
+    <div class="form-group" style="flex: 1; margin: 0;">
+      <label class="form-label">Select User with Starter Holdings</label>
+      <select name="user_id" class="form-select" required>
+        {% for u in users %}
+        <option value="{{ u.id }}">{{ u.username }} ({{ u.email }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-outline" style="color: var(--red); border-color: var(--red); height: 38px;">
+      Purge Starter Holdings
+    </button>
+  </form>
+</div>
+
+<!-- 5. Hub Outbox Events (TradeOne Sync) -->
+<div class="card" style="margin-bottom: 24px;">
+  <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      <h3 class="card-title">5. Hub Outbox Events (TradeOne Sync)</h3>
+      <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 4px 0 0 0;">
+        Background delivery queue sending <code>HOLDINGS_CHANGED</code> events to TradeOne with retry backoff up to 10 attempts.
+      </p>
+    </div>
+    <form action="/admin/outbox/resend-all" method="POST" style="margin: 0;">
+      <button type="submit" class="btn btn-primary btn-sm">
+        🔄 Resend All Events
+      </button>
+    </form>
+  </div>
+
+  <div style="display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap;">
+    <div style="background: rgba(255,255,255,0.05); padding: 8px 16px; border-radius: 8px;">
+      <span style="font-size: 0.8rem; color: var(--text-secondary);">Total:</span>
+      <strong>{{ outbox_total }}</strong>
+    </div>
+    <div style="background: rgba(34,197,94,0.1); color: #22c55e; padding: 8px 16px; border-radius: 8px;">
+      <span style="font-size: 0.8rem;">Sent:</span>
+      <strong>{{ outbox_sent }}</strong>
+    </div>
+    <div style="background: rgba(234,179,8,0.1); color: #eab308; padding: 8px 16px; border-radius: 8px;">
+      <span style="font-size: 0.8rem;">Pending:</span>
+      <strong>{{ outbox_pending }}</strong>
+    </div>
+    <div style="background: rgba(239,68,68,0.1); color: #ef4444; padding: 8px 16px; border-radius: 8px;">
+      <span style="font-size: 0.8rem;">Failed:</span>
+      <strong>{{ outbox_failed }}</strong>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Provider</th>
+          <th>Email</th>
+          <th>Event</th>
+          <th>Status</th>
+          <th>Attempts</th>
+          <th>Occurred At</th>
+          <th>Last Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ev in outbox_events %}
+        <tr>
+          <td>#{{ ev.id }}</td>
+          <td><span class="badge">{{ ev.provider }}</span></td>
+          <td><code>{{ ev.email }}</code></td>
+          <td><strong>{{ ev.event }}</strong></td>
+          <td>
+            {% if ev.status == 'SENT' %}
+              <span class="badge" style="background: rgba(34,197,94,0.2); color: #22c55e;">SENT</span>
+            {% elif ev.status == 'PENDING' %}
+              <span class="badge" style="background: rgba(234,179,8,0.2); color: #eab308;">PENDING</span>
+            {% else %}
+              <span class="badge" style="background: rgba(239,68,68,0.2); color: #ef4444;">FAILED</span>
+            {% endif %}
+          </td>
+          <td>{{ ev.attempts }} / {{ ev.max_attempts }}</td>
+          <td style="font-size: 0.8rem; color: var(--text-secondary);">{{ ev.occurred_at }}</td>
+          <td style="font-size: 0.8rem; color: var(--red); max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            {{ ev.last_error or '-' }}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8" style="text-align: center; color: var(--text-secondary); padding: 24px;">
+            No outbox events recorded yet.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}

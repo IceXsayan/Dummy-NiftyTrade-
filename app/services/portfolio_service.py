@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session
 
 from app.models.user import User
 from app.models.trading import Holding, Position
+from app.services.holdings_service import compute_user_delivery_holdings
 
 def get_portfolio_summary(db: Session, user: User) -> Dict[str, Any]:
-    holdings = db.query(Holding).filter(Holding.user_id == user.id).all()
+    holdings = compute_user_delivery_holdings(db, user)
     positions = db.query(Position).filter(Position.user_id == user.id).all()
 
     total_invested = 0.0

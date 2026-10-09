@@ -29,6 +29,8 @@ from app.routers import (
 )
 
 
+from app.services.outbox_service import run_outbox_worker_loop
+
 simulator_task = None
 
 @asynccontextmanager
@@ -41,13 +43,19 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
-    # 2. Start background price simulator task
+    # 2. Start background price simulator task and outbox worker
     sim_task = asyncio.create_task(run_price_simulator())
+    outbox_task = asyncio.create_task(run_outbox_worker_loop())
     yield
-    # 3. Shutdown: Cancel simulator task
+    # 3. Shutdown: Cancel simulator task and outbox worker
     sim_task.cancel()
+    outbox_task.cancel()
     try:
         await sim_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await outbox_task
     except asyncio.CancelledError:
         pass
 

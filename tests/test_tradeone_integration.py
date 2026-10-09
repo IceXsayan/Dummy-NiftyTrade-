@@ -92,64 +92,69 @@ def test_provisioning_idempotency(client, test_db):
 
 # 4. Deterministic Portfolio
 def test_deterministic_portfolio(test_db):
-    catalog = load_shared_instruments()
-    catalog_map = {item["symbol"]: item for item in catalog}
+    orig_seed = settings.SEED_STARTER_PORTFOLIO
+    try:
+        settings.SEED_STARTER_PORTFOLIO = True
+        catalog = load_shared_instruments()
+        catalog_map = {item["symbol"]: item for item in catalog}
 
-    email = "portfolio.check@example.com"
-    norm_email = normalize_email(email)
+        email = "portfolio.check@example.com"
+        norm_email = normalize_email(email)
 
-    # Test user 1
-    u1 = User(
-        username="pf_user1",
-        email=norm_email,
-        full_name="PF User",
-        hashed_password="pw",
-        client_id="NTPF1",
-        masked_pan="TEST-PAN-1111",
-        masked_demat="IN300001********",
-        mobile="9000011111"
-    )
-    test_db.add(u1)
-    test_db.commit()
+        # Test user 1
+        u1 = User(
+            username="pf_user1",
+            email=norm_email,
+            full_name="PF User",
+            hashed_password="pw",
+            client_id="NTPF1",
+            masked_pan="TEST-PAN-1111",
+            masked_demat="IN300001********",
+            mobile="9000011111"
+        )
+        test_db.add(u1)
+        test_db.commit()
 
-    holdings1 = generate_starter_portfolio(test_db, u1)
-    test_db.commit()
+        holdings1 = generate_starter_portfolio(test_db, u1)
+        test_db.commit()
 
-    # Starting wallet check
-    assert u1.available_funds == 1000000.0
+        # Starting wallet check
+        assert u1.available_funds == 1000000.0
 
-    # Capture details
-    h1_details = [(h.instrument.symbol, h.quantity, h.average_price) for h in holdings1]
+        # Capture details
+        h1_details = [(h.instrument.symbol, h.quantity, h.average_price) for h in holdings1]
 
-    # Verify Provider A theme: stocks + 1 REIT
-    reit_count = sum(1 for h in holdings1 if h.instrument.asset_class == "reit")
-    equity_count = sum(1 for h in holdings1 if h.instrument.asset_class == "equity")
-    assert reit_count == 1
-    assert equity_count >= 3
+        # Verify Provider A theme: stocks + 1 REIT
+        reit_count = sum(1 for h in holdings1 if h.instrument.asset_class == "reit")
+        equity_count = sum(1 for h in holdings1 if h.instrument.asset_class == "equity")
+        assert reit_count == 1
+        assert equity_count >= 3
 
-    # Verify 2-3 overlapping ISINs (RELIANCE, TCS, HDFCBANK)
-    overlap_syms = {"RELIANCE", "TCS", "HDFCBANK"}
-    overlap_found = [h.instrument.symbol for h in holdings1 if h.instrument.symbol in overlap_syms]
-    assert 2 <= len(overlap_found) <= 3
+        # Verify 2-3 overlapping ISINs (RELIANCE, TCS, HDFCBANK)
+        overlap_syms = {"RELIANCE", "TCS", "HDFCBANK"}
+        overlap_found = [h.instrument.symbol for h in holdings1 if h.instrument.symbol in overlap_syms]
+        assert 2 <= len(overlap_found) <= 3
 
-    # Verify prices within +/- 15% of catalog price
-    for h in holdings1:
-        cat_price = catalog_map[h.instrument.symbol]["price"]
-        lower = round(cat_price * 0.85, 2)
-        upper = round(cat_price * 1.15, 2)
-        assert lower <= h.average_price <= upper
+        # Verify prices within +/- 15% of catalog price
+        for h in holdings1:
+            cat_price = catalog_map[h.instrument.symbol]["price"]
+            lower = round(cat_price * 0.85, 2)
+            upper = round(cat_price * 1.15, 2)
+            assert lower <= h.average_price <= upper
 
-    # Reset holdings and regenerate for the same email
-    for h in holdings1:
-        test_db.delete(h)
-    test_db.commit()
+        # Reset holdings and regenerate for the same email
+        for h in holdings1:
+            test_db.delete(h)
+        test_db.commit()
 
-    holdings2 = generate_starter_portfolio(test_db, u1)
-    test_db.commit()
-    h2_details = [(h.instrument.symbol, h.quantity, h.average_price) for h in holdings2]
+        holdings2 = generate_starter_portfolio(test_db, u1)
+        test_db.commit()
+        h2_details = [(h.instrument.symbol, h.quantity, h.average_price) for h in holdings2]
 
-    # Must be 100% identical after DB reset / regeneration
-    assert h1_details == h2_details
+        # Must be 100% identical after DB reset / regeneration
+        assert h1_details == h2_details
+    finally:
+        settings.SEED_STARTER_PORTFOLIO = orig_seed
 
     # Verify existing demo users remain unchanged
     demo1 = test_db.query(User).filter(User.username == "demo1").first()

@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.instrument import Instrument
 from app.models.trading import Holding, Position, Order, Trade
 from app.serializers import get_serializer
+from app.services.holdings_service import compute_user_delivery_holdings
 
 router = APIRouter(prefix="/api/v1", tags=["Public Data API v1"])
 
@@ -24,9 +25,23 @@ async def get_holdings(
     db: Session = Depends(get_db)
 ):
     s = get_serializer()
-    holdings = db.query(Holding).filter(Holding.user_id == user.id, Holding.quantity > 0).all()
+    holdings = compute_user_delivery_holdings(db, user)
     serialized = [s.serialize_holding(h) for h in holdings]
-    return s.success(serialized)
+    resp = s.success(serialized)
+
+    total_inv = round(sum(h.invested_value for h in holdings), 2)
+    total_cur = round(sum(h.current_value for h in holdings), 2)
+    total_day = round(sum(h.quantity * h.instrument.day_change for h in holdings), 2)
+    total_pnl = round(total_cur - total_inv, 2)
+
+    resp["totals"] = {
+        "invested": total_inv,
+        "current_value": total_cur,
+        "total_pnl": total_pnl,
+        "day_change": total_day,
+        "count": len(holdings)
+    }
+    return resp
 
 @router.get("/positions", summary="Get Intraday Positions")
 async def get_positions(

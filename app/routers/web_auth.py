@@ -198,7 +198,7 @@ def _login_or_create_google_user(db: Session, email: str, full_name: Optional[st
             bank_name=identity["bank_name"],
             bank_account_masked=identity["bank_account_masked"],
             bank_ifsc=identity["bank_ifsc"],
-            available_funds=1000000.0,
+            available_funds=settings.STARTING_FUNDS,
             used_margin=0.0,
             google_id=google_id,
             avatar_url=avatar_url,
@@ -207,8 +207,9 @@ def _login_or_create_google_user(db: Session, email: str, full_name: Optional[st
         db.add(user)
         db.flush()
 
-        # Generate deterministic starter portfolio using instruments_shared.json
-        generate_starter_portfolio(db, user)
+        # Generate starter portfolio only if explicitly enabled in configuration
+        if getattr(settings, "SEED_STARTER_PORTFOLIO", False):
+            generate_starter_portfolio(db, user)
 
         # Create fresh default watchlist
         wl = Watchlist(user_id=user.id, name="My Watchlist")
@@ -302,14 +303,15 @@ async def register_action(
         bank_name=identity["bank_name"],
         bank_account_masked=identity["bank_account_masked"],
         bank_ifsc=identity["bank_ifsc"],
-        available_funds=1000000.0,
+        available_funds=settings.STARTING_FUNDS,
         used_margin=0.0
     )
     db.add(new_user)
     db.flush()
 
-    # Generate deterministic starter portfolio using instruments_shared.json
-    generate_starter_portfolio(db, new_user)
+    # Generate starter portfolio only if explicitly enabled in configuration
+    if getattr(settings, "SEED_STARTER_PORTFOLIO", False):
+        generate_starter_portfolio(db, new_user)
 
     # Add default watchlist
     wl = Watchlist(user_id=new_user.id, name="My Watchlist")
@@ -319,7 +321,7 @@ async def register_action(
 
     # Log in
     session_token = create_session_token(new_user.id)
-    response = RedirectResponse(url=f"/dashboard?success=Account created! Welcome, {new_user.full_name}! Starter portfolio and ₹10,00,000 cash balance loaded.", status_code=status.HTTP_303_SEE_OTHER)
+    response = RedirectResponse(url=f"/dashboard?success=Account created! Welcome, {new_user.full_name}! ₹{int(settings.STARTING_FUNDS):,} cash balance loaded.", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie(
         key="session_id",
         value=session_token,

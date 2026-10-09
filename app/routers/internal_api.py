@@ -14,6 +14,7 @@ from app.models.trading import Holding, Watchlist
 from app.serializers import get_serializer
 from app.services.portfolio_service import get_portfolio_summary
 from app.services.portfolio_starter import generate_starter_portfolio
+from app.services.holdings_service import compute_user_delivery_holdings, get_user_summary_data
 from app.shared_identity import normalize_email, generate_identity
 
 router = APIRouter(prefix="/internal/v1", tags=["TradeOne Internal API v1"])
@@ -130,15 +131,16 @@ async def provision_user(
         bank_name=identity["bank_name"],
         bank_account_masked=identity["bank_account_masked"],
         bank_ifsc=identity["bank_ifsc"],
-        available_funds=1000000.0,
+        available_funds=settings.STARTING_FUNDS,
         used_margin=0.0,
         is_admin=False
     )
     db.add(new_user)
     db.flush()
 
-    # Generate starter portfolio using instruments_shared.json
-    generate_starter_portfolio(db, new_user)
+    # Generate starter portfolio only if explicitly enabled in configuration
+    if getattr(settings, "SEED_STARTER_PORTFOLIO", False):
+        generate_starter_portfolio(db, new_user)
 
     # Create default watchlist
     wl = Watchlist(user_id=new_user.id, name="My Watchlist")
@@ -159,7 +161,7 @@ async def get_user_profile(
     clean_email = normalize_email(email)
     user = db.query(User).filter(User.email == clean_email).first()
     if not user:
-        raise HTTPException(status_code=404, detail=s.error(f"User not found for email: {clean_email}"))
+        raise HTTPException(status_code=404, detail="USER_NOT_FOUND")
 
     return s.success(s.serialize_profile(user))
 
@@ -170,18 +172,33 @@ async def get_user_holdings(
     _auth = Depends(verify_internal_auth)
 ):
     """
-    Returns exactly the same JSON structure, field names, number formats and pagination
-    as the existing public holdings endpoint (/api/v1/holdings).
+    Returns real delivery holdings computed strictly from executed trades.
+    If the user does not exist, returns 404 USER_NOT_FOUND.
+    If the user has no holdings, returns 200 with normal envelope, empty list and totals of 0.
     """
     s = get_serializer()
     clean_email = normalize_email(email)
     user = db.query(User).filter(User.email == clean_email).first()
     if not user:
-        raise HTTPException(status_code=404, detail=s.error(f"User not found for email: {clean_email}"))
+        raise HTTPException(status_code=404, detail="USER_NOT_FOUND")
 
-    holdings = db.query(Holding).filter(Holding.user_id == user.id, Holding.quantity > 0).all()
+    holdings = compute_user_delivery_holdings(db, user)
     serialized = [s.serialize_holding(h) for h in holdings]
-    return s.success(serialized)
+    resp = s.success(serialized)
+
+    total_inv = round(sum(h.invested_value for h in holdings), 2)
+    total_cur = round(sum(h.current_value for h in holdings), 2)
+    total_day = round(sum(h.quantity * h.instrument.day_change for h in holdings), 2)
+    total_pnl = round(total_cur - total_inv, 2)
+
+    resp["totals"] = {
+        "invested": total_inv,
+        "current_value": total_cur,
+        "total_pnl": total_pnl,
+        "day_change": total_day,
+        "count": len(holdings)
+    }
+    return resp
 
 @router.get("/users/{email}/summary", summary="Get User Portfolio Summary")
 async def get_user_summary(
@@ -189,26 +206,15 @@ async def get_user_summary(
     db: Session = Depends(get_db),
     _auth = Depends(verify_internal_auth)
 ):
+    """
+    Returns user summary: invested, current value, day change, holding count,
+    as_of, and timestamp of the last executed trade for that user.
+    """
     s = get_serializer()
     clean_email = normalize_email(email)
     user = db.query(User).filter(User.email == clean_email).first()
     if not user:
-        raise HTTPException(status_code=404, detail=s.error(f"User not found for email: {clean_email}"))
+        raise HTTPException(status_code=404, detail="USER_NOT_FOUND")
 
-    summary = get_portfolio_summary(db, user)
-    return s.success({
-        "user_id": user.client_id,
-        "email": user.email,
-        "full_name": user.full_name,
-        "available_funds": summary["available_funds"],
-        "used_margin": summary["used_margin"],
-        "net_worth": summary["net_worth"],
-        "total_invested": summary["total_invested"],
-        "total_current": summary["total_current"],
-        "total_pnl": summary["total_pnl"],
-        "total_pnl_percentage": summary["total_pnl_percentage"],
-        "day_pnl": summary["day_pnl"],
-        "holdings_count": len(summary["holdings"]),
-        "provider": getattr(settings, "PROVIDER_CODE", "a"),
-        "broker_name": getattr(settings, "BROKER_NAME", "NiftyTrade")
-    })
+    summary_data = get_user_summary_data(db, user)
+    return s.success(summary_data)

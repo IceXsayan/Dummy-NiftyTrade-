@@ -163,6 +163,12 @@ def execute_limit_order(db: Session, order: Order, execution_price: float):
         price=execution_price,
         trade_time=datetime.now(timezone.utc).replace(tzinfo=None)
     ))
+
+    # Insert outbox event in the same transaction as the delivery trade
+    if order.product_type == "CNC":
+        from app.services.outbox_service import enqueue_outbox_event_in_tx
+        enqueue_outbox_event_in_tx(db, user.email, "HOLDINGS_CHANGED")
+
     db.commit()
 
 def _simulate_tick_in_db():

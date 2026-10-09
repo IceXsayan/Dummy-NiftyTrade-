@@ -4,9 +4,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.core.config import settings
 from app.core.database import Base, get_db
 from app.services.seed_service import seed_database
 from app.main import app
+
+settings.DEMO_MODE = True
 
 TEST_DB_FILE = "./test_niftytrade.db"
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{TEST_DB_FILE}"
